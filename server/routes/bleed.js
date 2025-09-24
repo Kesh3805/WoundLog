@@ -79,6 +79,11 @@ router.get('/:id', async (req, res) => {
 
 // Report a post (store report)
 router.post('/:id/report', async (req, res) => {
+  // Check if this is a featured post
+  if (req.params.id.startsWith('featured-')) {
+    return res.status(400).json({ error: 'Featured posts cannot be reported' });
+  }
+  
   let reporterId = null;
   if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
     try {
@@ -245,6 +250,12 @@ router.delete('/:id', async (req, res) => {
 // Heart a post (Reddit-style, no unheart, no self-heart, no double-heart)
 router.post('/:id/heart', auth, async (req, res) => {
   const userId = req.user.userId;
+  
+  // Check if this is a featured post
+  if (req.params.id.startsWith('featured-')) {
+    return res.status(400).json({ error: 'Featured posts cannot be hearted through the API' });
+  }
+  
   const post = await BleedPost.findById(req.params.id);
   if (!post) return res.status(404).json({ error: 'Not found' });
   // Prevent self-hearting
@@ -270,6 +281,12 @@ router.post('/:id/heart', auth, async (req, res) => {
 // Unheart a post (unlike)
 router.delete('/:id/heart', auth, async (req, res) => {
   const userId = req.user.userId;
+  
+  // Check if this is a featured post
+  if (req.params.id.startsWith('featured-')) {
+    return res.status(400).json({ error: 'Featured posts cannot be unhearted through the API' });
+  }
+  
   const post = await BleedPost.findById(req.params.id);
   if (!post) return res.status(404).json({ error: 'Not found' });
   // Only allow if already hearted

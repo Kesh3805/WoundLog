@@ -41,7 +41,6 @@ export default function BleedPostCard({ post, onPostDeleted }: { post: any; onPo
     }
   }
   
-  console.log('BleedPostCard render:', { userId, token: token ? 'present' : 'missing', postId: post._id, heartedBy: post.heartedBy });
   const [hearted, setHearted] = React.useState(
     Array.isArray(post.heartedBy) && userId ? post.heartedBy.map(String).includes(userId) : false
   );
@@ -58,19 +57,49 @@ export default function BleedPostCard({ post, onPostDeleted }: { post: any; onPo
   }, [post.heartedBy, post.heartCount, userId]);
   
   async function handleHeart() {
-    console.log('handleHeart called', { loading, userId, hearted, postId: post._id });
     if (loading || !userId) {
-      console.log('Early return - loading:', loading, 'userId:', userId);
       return;
     }
+    
+    // Check if this is a featured post - handle locally only
+    if (post._id.startsWith('featured-')) {
+      setHearted(!hearted);
+      setHeartCount((prev: number) => hearted ? Math.max(0, prev - 1) : prev + 1);
+      showToast(hearted ? 'Post unhearted.' : 'Post hearted!', 'success');
+      return;
+    }
+    
     setLoading(true);
+    
+    // Store original state for rollback
+    const originalHearted = hearted;
+    const originalCount = heartCount;
+    
     try {
       let updated;
       if (hearted) {
-        console.log('Unhearting post:', post._id);
-        updated = await unheartBleedPost(post._id, token || undefined);
+        // Optimistically update UI
+        setHearted(false);
+        setHeartCount((prev: number) => Math.max(0, prev - 1));
+        
+        try {
+          updated = await unheartBleedPost(post._id, token || undefined);
+        } catch (err: any) {
+          // If the error is about not having hearted, sync with backend state
+          if (err.message.includes('You have not hearted this post')) {
+            // Backend says we haven't hearted, so update our local state to match
+            setHearted(false);
+            setHeartCount(post.heartCount ?? 0);
+            showToast('Post was not hearted. State synchronized.', 'success');
+            return;
+          }
+          throw err; // Re-throw other errors
+        }
+        
+        // Update with server response
         setHearted(Array.isArray(updated.heartedBy) && userId ? updated.heartedBy.map(String).includes(userId) : false);
         setHeartCount(updated.heartCount ?? 0);
+        
         showToast(
           'Post unhearted.',
           'success',
@@ -87,17 +116,44 @@ export default function BleedPostCard({ post, onPostDeleted }: { post: any; onPo
           }
         );
       } else {
-        console.log('Hearting post:', post._id);
-        updated = await heartBleedPost(post._id, token || undefined);
+        // Optimistically update UI
+        setHearted(true);
+        setHeartCount((prev: number) => prev + 1);
+        
+        try {
+          updated = await heartBleedPost(post._id, token || undefined);
+        } catch (err: any) {
+          // If the error is about already having hearted, sync with backend state
+          if (err.message.includes('You have already hearted this post')) {
+            // Backend says we already hearted, so update our local state to match
+            setHearted(true);
+            setHeartCount(post.heartCount ?? 0);
+            showToast('Post was already hearted. State synchronized.', 'success');
+            return;
+          }
+          throw err; // Re-throw other errors
+        }
+        
+        // Update with server response
         setHearted(Array.isArray(updated.heartedBy) && userId ? updated.heartedBy.map(String).includes(userId) : false);
         setHeartCount(updated.heartCount ?? 0);
       }
-      console.log('API response:', updated);
     } catch (err: any) {
+      // Rollback optimistic updates on error
+      setHearted(originalHearted);
+      setHeartCount(originalCount);
+      
       console.error('Heart error:', err);
-      if (typeof window !== 'undefined' && window.alert) {
-        window.alert(err.message || 'Failed to update heart');
+      let errorMessage = 'Failed to update heart';
+      
+      try {
+        const errorObj = JSON.parse(err.message);
+        errorMessage = errorObj.error || errorMessage;
+      } catch {
+        errorMessage = err.message || errorMessage;
       }
+      
+      showToast(errorMessage, 'error');
     } finally {
       setLoading(false);
     }
@@ -105,6 +161,15 @@ export default function BleedPostCard({ post, onPostDeleted }: { post: any; onPo
   
   async function handleReport() {
     if (reporting) return;
+    
+    // Prevent reporting of featured posts
+    if (post._id.startsWith('featured-')) {
+      showToast('Featured posts cannot be reported.', 'error');
+      setShowReportModal(false);
+      setReportReason('');
+      return;
+    }
+    
     setReporting(true);
     try {
       const result = await reportBleedPost(post._id, reportReason, token || undefined);
@@ -167,35 +232,40 @@ export default function BleedPostCard({ post, onPostDeleted }: { post: any; onPo
           ))}
         </div>
         <div
-          className="font-poetic text-xl mb-2 relative drop-shadow-lg"
+          className="font-poetic text-lg mb-4 relative leading-relaxed cursor-pointer transition-all duration-300 whitespace-pre-line"
           style={{
-            color: '#fff',
-            fontFamily: theme.fonts.header,
-            letterSpacing: 0.5,
-            transition: 'color 0.2s',
+            color: theme.colors.text,
+            fontFamily: theme.fonts.body,
+            lineHeight: 1.6,
+            filter: 'blur(2px)',
+            opacity: 0.8,
             overflow: 'hidden',
             display: '-webkit-box',
-            WebkitLineClamp: 2,
+            WebkitLineClamp: 3,
             WebkitBoxOrient: 'vertical',
-            filter: 'blur(4px)',
-            opacity: 0.7,
-            transitionProperty: 'filter, opacity, color',
-            transitionDuration: '0.3s',
           }}
           onMouseEnter={e => {
             (e.currentTarget as HTMLElement).style.filter = 'blur(0px)';
             (e.currentTarget as HTMLElement).style.opacity = '1';
             (e.currentTarget as HTMLElement).style.webkitLineClamp = 'unset';
+            (e.currentTarget as HTMLElement).style.maxHeight = 'none';
           }}
           onMouseLeave={e => {
-            (e.currentTarget as HTMLElement).style.filter = 'blur(4px)';
-            (e.currentTarget as HTMLElement).style.opacity = '0.7';
-            (e.currentTarget as HTMLElement).style.webkitLineClamp = '2';
+            (e.currentTarget as HTMLElement).style.filter = 'blur(2px)';
+            (e.currentTarget as HTMLElement).style.opacity = '0.8';
+            (e.currentTarget as HTMLElement).style.webkitLineClamp = '3';
           }}
+          title="Hover to reveal content"
         >
-          {post.content || "...poetic wound..."}
-          {/* Animated accent underline */}
-          <span className="block w-16 h-1 rounded-full mt-2 bg-gradient-to-r from-accent to-transparent animate-underline" style={{ background: `linear-gradient(90deg, ${theme.colors.accent}, transparent)` }}></span>
+          {post.content || "...a wound shared in shadows..."}
+          {/* Subtle gradient fade at bottom */}
+          <div 
+            className="absolute bottom-0 left-0 right-0 h-8 pointer-events-none transition-opacity duration-300"
+            style={{ 
+              background: `linear-gradient(to bottom, transparent, ${theme.colors.bg || '#1a1a1a'})`,
+              opacity: 0.7
+            }}
+          />
         </div>
         <div className="flex items-center justify-between mt-6">
           <div className="flex items-center gap-3">
@@ -228,7 +298,6 @@ export default function BleedPostCard({ post, onPostDeleted }: { post: any; onPo
                 fontFamily: theme.fonts.body,
               }}
               onClick={() => {
-                console.log('Report button clicked for post:', post._id);
                 setShowReportModal(true);
               }}
               title="Report this post"

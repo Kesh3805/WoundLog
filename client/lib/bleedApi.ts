@@ -48,37 +48,25 @@ export async function createBleedPost(content: string, emotionTags: string[], to
 }
 
 export async function heartBleedPost(id: string, token?: string): Promise<BleedPost> {
-  console.log('heartBleedPost called with id:', id, 'token:', token ? 'present' : 'missing');
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
-  console.log('Making request to:', `${API_URL}/${id}/heart`);
   const res = await fetch(`${API_URL}/${id}/heart`, { method: 'POST', headers });
-  console.log('Response status:', res.status);
   if (!res.ok) {
     const errorText = await res.text();
-    console.error('Heart API error:', errorText);
     throw new Error(errorText);
   }
-  const data = await res.json();
-  console.log('Heart API success response:', data);
-  return data;
+  return res.json();
 }
 
 export async function unheartBleedPost(id: string, token?: string): Promise<BleedPost> {
-  console.log('unheartBleedPost called with id:', id, 'token:', token ? 'present' : 'missing');
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
-  console.log('Making request to:', `${API_URL}/${id}/heart`);
   const res = await fetch(`${API_URL}/${id}/heart`, { method: 'DELETE', headers });
-  console.log('Response status:', res.status);
   if (!res.ok) {
     const errorText = await res.text();
-    console.error('Unheart API error:', errorText);
     throw new Error(errorText);
   }
-  const data = await res.json();
-  console.log('Unheart API success response:', data);
-  return data;
+  return res.json();
 }
 
 export async function getBleedPrompt(topic?: string): Promise<string> {
